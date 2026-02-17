@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>✨彬’s專屬紅包🧧💞</title>
+    <style>
+        body { margin: 0; padding: 0; overflow: hidden; background-color: #8b0000; touch-action: none; font-family: "Microsoft JhengHei", sans-serif; }
+        canvas { display: block; }
+        
+        #intro { position: absolute; top: 8%; left: 50%; transform: translateX(-50%); color: #ffd700; font-size: 24px; font-weight: bold; text-shadow: 2px 2px 4px rgba(0,0,0,0.5); text-align: center; z-index: 5; width: 90%; pointer-events: none; }
+
+        /* 中獎對話框樣式 */
+        #resultModal {
+            display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) scale(0.5);
+            width: 85%; max-width: 350px; background: #fff8e7; border: 5px solid #ffd700;
+            border-radius: 25px; padding: 35px 20px; text-align: center; z-index: 200;
+            box-shadow: 0 0 40px rgba(0,0,0,0.7); transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            opacity: 0;
+        }
+        #resultModal.show { display: block; transform: translate(-50%, -50%) scale(1); opacity: 1; }
+        #resultTitle { color: #d90000; font-size: 24px; margin-bottom: 12px; font-weight: bold; }
+        #resultText { color: #333; font-size: 22px; line-height: 1.6; margin-bottom: 25px; white-space: pre-wrap; font-weight: bold; }
+        #closeModalBtn {
+            background: #d90000; color: white; border: none; padding: 15px 40px;
+            font-size: 20px; border-radius: 50px; cursor: pointer; font-weight: bold;
+        }
+
+        /* 加大後的 LINE 按鈕 */
+        #shareBtn {
+            display: none; position: absolute; bottom: 50px; left: 50%; transform: translateX(-50%);
+            background-color: #06C755; color: white; border: none; 
+            padding: 20px 0; 
+            font-size: 24px; 
+            border-radius: 50px; box-shadow: 0 8px 25px rgba(0,0,0,0.6);
+            cursor: pointer; z-index: 100; font-weight: bold; width: 85%; max-width: 320px;
+        }
+    </style>
+</head>
+<body>
+
+<div id="intro">✨彬’s專屬紅包🧧💞</div>
+
+<div id="resultModal">
+    <div id="resultTitle">🎊 恭喜抽中 🎊</div>
+    <div id="resultText"></div>
+    <button id="closeModalBtn" onclick="hideModal()">收下紅包</button>
+</div>
+
+<button id="shareBtn" onclick="shareToLine()">傳送結果給對方</button>
+<canvas id="gameCanvas"></canvas>
+
+<script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const shareBtn = document.getElementById('shareBtn');
+    const resultModal = document.getElementById('resultModal');
+    const resultText = document.getElementById('resultText');
+    
+    const urlParams = new URLSearchParams(window.location.search);
+    let senderName = urlParams.get('from'); 
+
+    const prizeMap = {
+        "0000": { name: "😏 精神支持獎", detail: "\n😓", val: "$0000" },
+        "1111": { name: "🧸 超級幸運星", detail: "", val: "$1111" },
+        "2222": { name: "👑 專屬紅利", detail: "", val: "$2222" },
+        "888": { name: "🏆 超級大禮包", detail: "", val: "$888" },
+        "666": { name: "🔥 心跳暴擊包", detail: "", val: "$666" },
+        "520": { name: "❤️ 我的愛\n（限定版）", detail: "", val: "$520" },
+        "222": { name: "💞 只對你有效", detail: "", val: "$222" },
+        "0816": { name: "👩🏻‍❤️‍👨🏻 專屬回憶", detail: "", val: "$816" },
+        "88": { name: "🫶 抱抱儲值卡", detail: "", val: "$888" },
+        "一個飛吻": { name: "💋 親一下", detail: "", val: "一個飛吻😘" },
+        "1002": { name: "🚢 航海紅包", detail: "", val: "$1002" },
+        "銘謝惠顧": { name: "🥲 下次再寵你券", detail: "", val: "銘謝惠顧" }
+    };
+
+    const prizeKeys = Object.keys(prizeMap);
+    let boxes = [], particles = [], lastPrize = null;
+
+    function init() {
+        resize();
+        window.addEventListener('resize', resize);
+        canvas.addEventListener('click', (e) => handleInput(e.clientX, e.clientY));
+        canvas.addEventListener('touchstart', (e) => {
+            if(e.target.tagName === 'BUTTON') return;
+            handleInput(e.touches[0].clientX, e.touches[0].clientY);
+        }, {passive: false});
+        createBoxes([...prizeKeys].sort(() => Math.random() - 0.5));
+        loop();
+    }
+
+    function resize() {
+        canvas.width = window.innerWidth; canvas.height = window.innerHeight;
+        if (boxes.length > 0) recalcPositions();
+    }
+
+    function createBoxes(prizes) {
+        const cols = 3, rows = 4;
+        // 增加佔比：寬度佔 94%，高度佔 70%
+        const boxW = (canvas.width * 0.94) / cols, boxH = (canvas.height * 0.7) / rows;
+        for (let i = 0; i < 12; i++) {
+            boxes.push({ r: Math.floor(i/3), c: i%3, key: prizes[i], isOpen: false, w: boxW * 0.9, h: boxH * 0.9 });
+        }
+        recalcPositions();
+    }
+
+    function recalcPositions() {
+        const marginX = canvas.width * 0.03, marginY = canvas.height * 0.16;
+        const boxW = (canvas.width * 0.94) / 3, boxH = (canvas.height * 0.7) / 4;
+        boxes.forEach(b => {
+            b.cx = marginX + (b.c * boxW) + (boxW/2);
+            b.cy = marginY + (b.r * boxH) + (boxH/2);
+            b.x = b.cx - b.w/2; b.y = b.cy - b.h/2;
+        });
+    }
+
+    class Particle {
+        constructor(x, y, color) {
+            this.x = x; this.y = y; this.color = color;
+            const angle = Math.random() * Math.PI * 2;
+            const speed = Math.random() * 10 + 4;
+            this.vx = Math.cos(angle) * speed;
+            this.vy = Math.sin(angle) * speed;
+            this.life = 1; this.decay = Math.random() * 0.01 + 0.008;
+        }
+        update() { this.x += this.vx; this.y += this.vy; this.vy += 0.12; this.life -= this.decay; }
+        draw() {
+            ctx.globalAlpha = this.life; ctx.fillStyle = this.color;
+            ctx.beginPath(); ctx.arc(this.x, this.y, 3.5, 0, Math.PI*2); ctx.fill();
+        }
+    }
+
+    function firework(x, y) {
+        const colors = ['#FFD700', '#FF4500', '#FF69B4', '#00FFFF', '#ADFF2F', '#FFFFFF'];
+        const color = colors[Math.floor(Math.random()*colors.length)];
+        for(let i=0; i<100; i++) particles.push(new Particle(x, y, color));
+    }
+
+    function handleInput(x, y) {
+        boxes.forEach(b => {
+            if (!b.isOpen && x > b.x && x < b.x + b.w && y > b.y && y < b.y + b.h) {
+                b.isOpen = true; 
+                lastPrize = prizeMap[b.key];
+                if (window.navigator.vibrate) window.navigator.vibrate([150, 50, 150]);
+                
+                firework(canvas.width/2, canvas.height/3);
+                setTimeout(() => firework(canvas.width*0.25, canvas.height*0.5), 300);
+                setTimeout(() => firework(canvas.width*0.75, canvas.height*0.45), 600);
+
+                setTimeout(() => showModal(lastPrize), 1600);
+            }
+        });
+    }
+
+    function showModal(prize) {
+        resultText.innerText = `${prize.val}\n${prize.name.replace('\n', '')}${prize.detail.trim()}`;
+        resultModal.classList.add('show');
+    }
+
+    function hideModal() {
+        resultModal.classList.remove('show');
+        setTimeout(() => {
+            resultModal.style.display = 'none';
+            shareBtn.style.display = 'block';
+        }, 300);
+    }
+
+    function shareToLine() {
+        const baseUrl = window.location.href.split('?')[0]; 
+        const lineText = senderName ? 
+            `嘿！${senderName}，我在你分享的紅包抽到了：\n【${lastPrize.name.replace('\n', '')} - ${lastPrize.val}】！✨🧧` : 
+            `我在「彬’s專屬紅包」中抽到了：\n【${lastPrize.name.replace('\n', '')} - ${lastPrize.val}】！🧧\n你也來抽：\n${baseUrl}`;
+        window.location.href = `https://line.me/R/msg/text/?${encodeURIComponent(lineText)}`;
+    }
+
+    function drawBackground() {
+        ctx.fillStyle = '#8B0000'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.strokeStyle = '#A52A2A'; ctx.lineWidth = 1.5;
+        for (let y = 0; y < canvas.height; y += 60) {
+            ctx.beginPath();
+            for (let x = (y/60)%2*30; x < canvas.width + 60; x += 60) ctx.arc(x, y, 15, 0, Math.PI, true);
+            ctx.stroke();
+        }
+    }
+
+    function drawEnvelopes() {
+        boxes.forEach(b => {
+            ctx.save(); ctx.translate(b.cx, b.cy);
+            if (!b.isOpen) {
+                ctx.fillStyle = '#D90000'; ctx.fillRect(-b.w/2, -b.h/2, b.w, b.h);
+                ctx.fillStyle = '#B30000'; ctx.beginPath(); ctx.moveTo(-b.w/2, -b.h/2);
+                ctx.quadraticCurveTo(0, -b.h/2 + b.h*0.4, b.w/2, -b.h/2); ctx.fill();
+                ctx.fillStyle = '#FFD700'; ctx.beginPath(); ctx.arc(0, 0, b.w*0.22, 0, Math.PI*2); ctx.fill();
+                ctx.fillStyle = '#D90000'; ctx.font = `bold ${b.w*0.28}px serif`; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('福', 0, 0);
+            } else {
+                ctx.fillStyle = 'rgba(255, 248, 231, 0.95)'; ctx.fillRect(-b.w/2, -b.h/2, b.w, b.h);
+                ctx.strokeStyle = '#FFD700'; ctx.lineWidth = 4; ctx.strokeRect(-b.w/2, -b.h/2, b.w, b.h);
+                ctx.fillStyle = '#D90000';
+                
+                const p = prizeMap[b.key];
+                const lines = p.name.split('\n');
+                
+                // 大紅包配大字體：原本 0.14 -> 0.18
+                let fontSize = b.w * 0.18;
+                if (p.name.length > 6) fontSize = b.w * 0.15;
+                
+                ctx.font = `bold ${fontSize}px "Microsoft JhengHei"`;
+                ctx.textAlign='center'; ctx.textBaseline='middle';
+
+                if(lines.length === 1) {
+                    ctx.fillText(lines[0], 0, 0);
+                } else {
+                    ctx.fillText(lines[0], 0, -fontSize * 0.7);
+                    ctx.fillText(lines[1], 0, fontSize * 0.7);
+                }
+            }
+            ctx.restore();
+        });
+    }
+
+    function loop() {
+        drawBackground(); drawEnvelopes();
+        for(let i = particles.length - 1; i >= 0; i--) {
+            particles[i].update(); particles[i].draw();
+            if(particles[i].life <= 0) particles.splice(i, 1);
+        }
+        requestAnimationFrame(loop);
+    }
+
+    init();
+</script>
+</body>
+</html>
